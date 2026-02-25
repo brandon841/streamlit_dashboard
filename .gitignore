@@ -1,0 +1,10 @@
+#ignore ipynb checkpoints and files
+.ipynb_checkpoints/
+*.ipynb
+*.ipynb_checkpoints
+
+#ignore json files
+*.json
+
+#ignore environment files
+*.env
