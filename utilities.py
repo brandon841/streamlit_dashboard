@@ -15,10 +15,10 @@ except ImportError:
 
 def init_bigquery_client() -> bigquery.Client:
     """Initialize BigQuery client"""
-    # First try mounted secret (Cloud Run)
+    # First try mounted secret (Cloud Run with Secret Manager)
     bq_credentials_path = '/secrets/bigquery-credentials'
     
-    # Fall back to environment variable
+    # Fall back to environment variable (local development)
     if not os.path.exists(bq_credentials_path):
         bq_credentials_path = os.getenv('BIGQUERY_CREDENTIALS_PATH')
     
@@ -27,8 +27,12 @@ def init_bigquery_client() -> bigquery.Client:
     if not project_id:
         raise ValueError("GOOGLE_CLOUD_PROJECT_ID environment variable not set")
     
+    # If credentials file exists, use it
     if bq_credentials_path and os.path.exists(bq_credentials_path):
         os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = bq_credentials_path
         print(f"Using BigQuery credentials: {bq_credentials_path}")
+    else:
+        # Use default credentials (Cloud Run service account identity)
+        print("Using default credentials (service account)")
     
     return bigquery.Client(project=project_id)

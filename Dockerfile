@@ -20,7 +20,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application files
 COPY app.py .
 COPY utilities.py .
-COPY df_explanation.md .
 
 # Note: .env file not copied - use Cloud Run environment variables instead
 
