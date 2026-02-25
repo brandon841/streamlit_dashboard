@@ -116,6 +116,8 @@ with tab1:
     
     # Column selection
     st.subheader("Select Columns to Display")
+    with st.expander("Column Calculation Info"):
+        st.write("Engagement score is calculated as a proportion of key events (joined event, created event, viewed event, scrolled) / total sessions")
     available_columns = people_df.columns.tolist()
     default_columns = ['fullName', 'username', 'email', 'total_sessions', 'avg_session_duration', 
                       'engagement_score', 'country', 'city', 'businessUser', 'first_session_date']
