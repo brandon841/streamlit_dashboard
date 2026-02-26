@@ -326,4 +326,5 @@ with tab2:
 #         st.bar_chart(user_type_df.set_index('Type'))
 
 st.markdown("---")
-st.markdown("*Data refreshes every hour. Click 'Clear cache' in the hamburger menu to force refresh.*")
+st.markdown("*Data refreshes every hour. Click 'Clear cache' here to force refresh.*")
+st.button("Clear cache", on_click=st.cache_data.clear)
