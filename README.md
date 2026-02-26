@@ -2,6 +2,8 @@
 
 Interactive Streamlit dashboard for exploring aggregated user and session data from BigQuery.
 
+Can view live dashboard hosted by Google Run at - https://streamlit-dashboard-25415421028.us-central1.run.app/
+
 ## Features
 
 - **User Analytics**: View and filter user-level aggregated metrics
