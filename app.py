@@ -1,10 +1,12 @@
 import streamlit as st
 from utilities import init_bigquery_client
 from google.cloud import bigquery
+from google.cloud import storage
 import os
 import pandas as pd
 import numpy as np
 import json
+from datetime import datetime, timedelta, timezone
 
 # Page configuration
 st.set_page_config(
@@ -16,37 +18,72 @@ st.set_page_config(
 st.title("PostHog Analytics Dashboard")
 st.markdown("Interactive exploration of aggregated user and session data")
 
+# Configuration
+CACHE_BUCKET_NAME = "heyyall-dashboard-cache"  # Change this to your bucket name
+CACHE_REFRESH_HOURS = 24  # Refresh cache daily
+
 # Cache the data loading to avoid repeated queries
-@st.cache_data(ttl=3600)  # Cache for 1 hour
+@st.cache_data(ttl=3600)  # Cache for 1 hour in Streamlit memory
 def load_data():
-    """Load data from BigQuery"""
+    """Load data from Cloud Storage cache or BigQuery if cache is stale"""
     bq = init_bigquery_client()
+    storage_client = storage.Client()
+    bucket = storage_client.bucket(CACHE_BUCKET_NAME)
     
-    with st.spinner("Loading people data..."):
-        people_query = """
-            SELECT * FROM `etl-testing-478716.posthog_aggregated_prod.people_aggregated`
-        """
-        people_df = bq.query(people_query).to_dataframe()
+    tables = {
+        'people': 'etl-testing-478716.posthog_aggregated_prod.people_aggregated',
+        'sessions': 'etl-testing-478716.posthog_aggregated_prod.sessions_aggregated',
+        'churn': 'etl-testing-478716.posthog_aggregated_prod.user_churn_state',
+        'users': 'etl-testing-478716.firebase_etl_prod.users'
+    }
     
-    with st.spinner("Loading sessions data..."):
-        sessions_query = """
-            SELECT * FROM `etl-testing-478716.posthog_aggregated_prod.sessions_aggregated`
-        """
-        sessions_df = bq.query(sessions_query).to_dataframe()
-
-    with st.spinner("Loading churn data..."):
-        churn_query = """
-            SELECT * FROM `etl-testing-478716.posthog_aggregated_prod.user_churn_state`
-        """
-        churn_df = bq.query(churn_query).to_dataframe()
-
-    with st.spinner("Loading user data..."):
-        user_query = """
-            SELECT * FROM `etl-testing-478716.firebase_etl_prod.users`
-        """
-        user_df = bq.query(user_query).to_dataframe()
+    dataframes = {}
     
-    return people_df, sessions_df, churn_df, user_df
+    for table_name, table_path in tables.items():
+        blob_name = f"cache/{table_name}.parquet"
+        blob = bucket.blob(blob_name)
+        
+        should_query_bq = True
+        
+        # Check if cache exists and is recent
+        if blob.exists():
+            blob.reload()
+            cache_age = datetime.now(timezone.utc) - blob.updated
+            
+            if cache_age < timedelta(hours=CACHE_REFRESH_HOURS):
+                # Load from cache (nearly free!)
+                with st.spinner(f"Loading {table_name} from cache..."):
+                    try:
+                        # Download to memory and read as parquet
+                        cache_data = blob.download_as_bytes()
+                        dataframes[table_name] = pd.read_parquet(pd.io.common.BytesIO(cache_data))
+                        should_query_bq = False
+                        st.toast(f"{table_name} loaded from cache ({cache_age.seconds // 3600}h old)", icon="✅")
+                    except Exception as e:
+                        st.warning(f"Cache read failed for {table_name}: {e}. Querying BigQuery...")
+        
+        # Query BigQuery if cache doesn't exist or is stale
+        if should_query_bq:
+            with st.spinner(f"Querying BigQuery for {table_name} data..."):
+                # Optimize users query to only select needed columns
+                if table_name == 'users':
+                    query = f"SELECT user_id, fullName, email FROM `{table_path}`"
+                else:
+                    query = f"SELECT * FROM `{table_path}`"
+                
+                dataframes[table_name] = bq.query(query).to_dataframe()
+                
+                # Save to cache for next time
+                try:
+                    parquet_buffer = pd.io.common.BytesIO()
+                    dataframes[table_name].to_parquet(parquet_buffer, index=False)
+                    parquet_buffer.seek(0)
+                    blob.upload_from_file(parquet_buffer, content_type='application/octet-stream')
+                    st.toast(f"{table_name} cached for future use", icon="💾")
+                except Exception as e:
+                    st.warning(f"Failed to cache {table_name}: {e}")
+    
+    return dataframes['people'], dataframes['sessions'], dataframes['churn'], dataframes['users']
 
 # Load data
 try:
@@ -56,6 +93,10 @@ try:
     
     #dropping sessions with null start_timestamp as they are likely incomplete/invalid
     sessions_df = sessions_df.dropna(subset=['start_timestamp'])
+
+    #getting list of sessions with duration = 0 and autocapture_count = 0 ==> likely abnormal sessions that are artifacts from posthog
+    bad_session_df = sessions_df[(sessions_df['autocapture_count'] == 0) & (sessions_df['session_duration'] == 0)].session_id.copy()
+    sessions_df = sessions_df[~sessions_df['session_id'].isin(bad_session_df)]
     
     st.success(f"Data loaded successfully! {len(people_df)} users, {len(sessions_df)} sessions, {len(churn_df)} churn records")
 except Exception as e:
