@@ -38,6 +38,7 @@ def load_data():
     }
     
     dataframes = {}
+    load_info = []  # Track where data came from
     
     for table_name, table_path in tables.items():
         blob_name = f"cache/{table_name}.parquet"
@@ -52,42 +53,49 @@ def load_data():
             
             if cache_age < timedelta(hours=CACHE_REFRESH_HOURS):
                 # Load from cache (nearly free!)
-                with st.spinner(f"Loading {table_name} from cache..."):
-                    try:
-                        # Download to memory and read as parquet
-                        cache_data = blob.download_as_bytes()
-                        dataframes[table_name] = pd.read_parquet(pd.io.common.BytesIO(cache_data))
-                        should_query_bq = False
-                        st.toast(f"{table_name} loaded from cache ({cache_age.seconds // 3600}h old)", icon="✅")
-                    except Exception as e:
-                        st.warning(f"Cache read failed for {table_name}: {e}. Querying BigQuery...")
+                try:
+                    # Download to memory and read as parquet
+                    cache_data = blob.download_as_bytes()
+                    dataframes[table_name] = pd.read_parquet(pd.io.common.BytesIO(cache_data))
+                    should_query_bq = False
+                    hours_old = cache_age.seconds // 3600
+                    load_info.append(f"{table_name}: cache ({hours_old}h old)")
+                except Exception as e:
+                    # If cache read fails, fall back to BigQuery
+                    load_info.append(f"{table_name}: cache failed, using BigQuery")
         
         # Query BigQuery if cache doesn't exist or is stale
         if should_query_bq:
-            with st.spinner(f"Querying BigQuery for {table_name} data..."):
-                # Optimize users query to only select needed columns
-                if table_name == 'users':
-                    query = f"SELECT user_id, fullName, email FROM `{table_path}`"
-                else:
-                    query = f"SELECT * FROM `{table_path}`"
-                
-                dataframes[table_name] = bq.query(query).to_dataframe()
-                
-                # Save to cache for next time
-                try:
-                    parquet_buffer = pd.io.common.BytesIO()
-                    dataframes[table_name].to_parquet(parquet_buffer, index=False)
-                    parquet_buffer.seek(0)
-                    blob.upload_from_file(parquet_buffer, content_type='application/octet-stream')
-                    st.toast(f"{table_name} cached for future use", icon="💾")
-                except Exception as e:
-                    st.warning(f"Failed to cache {table_name}: {e}")
+            # Optimize users query to only select needed columns
+            if table_name == 'users':
+                query = f"SELECT user_id, fullName, email FROM `{table_path}`"
+            else:
+                query = f"SELECT * FROM `{table_path}`"
+            
+            dataframes[table_name] = bq.query(query).to_dataframe()
+            load_info.append(f"{table_name}: BigQuery (cached for 24h)")
+            
+            # Save to cache for next time
+            try:
+                parquet_buffer = pd.io.common.BytesIO()
+                dataframes[table_name].to_parquet(parquet_buffer, index=False)
+                parquet_buffer.seek(0)
+                blob.upload_from_file(parquet_buffer, content_type='application/octet-stream')
+            except Exception as e:
+                # Silently fail cache write - data is still available
+                pass
     
-    return dataframes['people'], dataframes['sessions'], dataframes['churn'], dataframes['users']
+    status_message = " | ".join(load_info)
+    return dataframes['people'], dataframes['sessions'], dataframes['churn'], dataframes['users'], status_message
 
 # Load data
 try:
-    people_df, sessions_df, churn_df, user_df = load_data()
+    with st.spinner("Loading data..."):
+        people_df, sessions_df, churn_df, user_df, load_status = load_data()
+    
+    # Show load status as toast notification
+    st.toast(f"✓ Data loaded: {load_status}", icon="✅")
+    
     #merging user_df to churn_df on user_id
     churn_df = churn_df.merge(user_df[['user_id', 'fullName', 'email']], on='user_id', how='left')
     
