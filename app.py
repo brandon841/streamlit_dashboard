@@ -93,8 +93,10 @@ try:
     with st.spinner("Loading data..."):
         people_df, sessions_df, churn_df, user_df, load_status = load_data()
     
-    # Show load status as toast notification
-    st.toast(f"✓ Data loaded: {load_status}", icon="✅")
+    # Show load status as toast notification (only once per data load)
+    if 'last_load_status' not in st.session_state or st.session_state.last_load_status != load_status:
+        st.toast(f"✓ Data loaded: {load_status}", icon="📊")
+        st.session_state.last_load_status = load_status
     
     #merging user_df to churn_df on user_id
     churn_df = churn_df.merge(user_df[['user_id', 'fullName', 'email']], on='user_id', how='left')
@@ -563,4 +565,11 @@ with tab3:
 
 st.markdown("---")
 st.markdown("*Data refreshes every hour. Click 'Clear cache' here to force refresh.*")
-st.button("Clear cache", on_click=st.cache_data.clear)
+
+def clear_all_cache():
+    """Clear both Streamlit cache and session state"""
+    st.cache_data.clear()
+    if 'last_load_status' in st.session_state:
+        del st.session_state.last_load_status
+
+st.button("Clear cache", on_click=clear_all_cache)
