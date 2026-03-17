@@ -286,6 +286,7 @@ with tab2:
         st.markdown("**Events**")
             
         show_created = st.checkbox("Created Event", value=False)
+        show_clicked_invite = st.checkbox("Clicked Invite", value=False)
         show_viewed = st.checkbox("Viewed Event", value=False)
         show_joined = st.checkbox("Joined Event", value=False)
         show_quiz = st.checkbox("Completed Quiz", value=False)
@@ -321,6 +322,8 @@ with tab2:
         filtered_sessions = filtered_sessions[filtered_sessions['completed_quiz'] == True]
     if show_discovered:
         filtered_sessions = filtered_sessions[filtered_sessions['visited_discover'] == True]
+    if show_clicked_invite:
+        filtered_sessions = filtered_sessions[filtered_sessions['clicked_invite'] == True]
     if selected_session_country != "All":
         filtered_sessions = filtered_sessions[filtered_sessions['country'] == selected_session_country]
     
@@ -350,7 +353,7 @@ with tab2:
         - `created_event` - Boolean flag: user created an event during session
         - `viewed_event` - Boolean flag: user viewed an event
         - `joined_event` - Boolean flag: user joined an event
-        - `invited_someone` - Boolean flag: user sent an invite
+        - `clicked_invite` - Boolean flag: user clicked an invite
         - `enabled_contacts` - Boolean flag: user enabled contact access
         - `scrolled` - Boolean flag: user scrolled during session
         - `visited_discover` - Boolean flag: user visited Discover page
